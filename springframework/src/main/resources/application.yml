@@ -1,0 +1,31 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /trinity
+
+spring:
+  application:
+    name: trinity
+  cloud:
+    aws:
+      region:
+        static: ${AWS_CLOUD_REGION}
+      credentials:
+        access-key: ${AWS_CLOUD_ACCESS_KEY}
+        secret-key: ${AWS_CLOUD_SECRET_KEY}
+      dynamodb:
+        person-table: ${AWS_CLOUD_DYNAMO_PERSON}
+
+app:
+  version: @project.version@
+  queues:
+    person-endpoint: ${AWS_CLOUD_SQS_PERSON}
+
+management:
+  endpoint:
+    health:
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health,info

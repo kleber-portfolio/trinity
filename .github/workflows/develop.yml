@@ -1,0 +1,103 @@
+name: Deploy Trinity App to ECS
+
+on:
+  push:
+    branches: [ develop ]
+
+jobs:
+  build-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    env:
+      STAGE: develop
+      SERVICE_NAME: trinity
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: Instalar wrapper do Maven
+        run: mvn -N io.takari:maven:wrapper -Dmaven=3.9.9
+
+      - name: Instalar xmllint
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+
+      - name: Extrair versão do pom.xml
+        id: version
+        run: |
+          VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" pom.xml)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CLOUD_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CLOUD_SECRET_KEY }}
+          aws-region: ${{ vars.AWS_CLOUD_REGION_DEV }}
+
+      - name: Login no Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build imagem com GraalVM
+        run: |
+          DOCKER_BUILDKIT=1 docker build \
+            --secret id=aws_access_key,env=AWS_CLOUD_ACCESS_KEY \
+            --secret id=aws_secret_key,env=AWS_CLOUD_SECRET_KEY \
+            --secret id=aws_region,env=AWS_CLOUD_REGION_DEV \
+            --secret id=dynamo_table,env=DYNAMO_PERSON_DEV \
+            --secret id=sqs_queue,env=PERSON_QUEUE_DEV \
+            -t ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:latest \
+            -t ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:${{ steps.version.outputs.version }} .
+        env:
+          AWS_CLOUD_ACCESS_KEY: ${{ secrets.AWS_CLOUD_ACCESS_KEY }}
+          AWS_CLOUD_SECRET_KEY: ${{ secrets.AWS_CLOUD_SECRET_KEY }}
+          AWS_CLOUD_REGION_DEV: ${{ vars.AWS_CLOUD_REGION_DEV }}
+          DYNAMO_PERSON_DEV: ${{ vars.DYNAMO_PERSON_DEV }}
+          PERSON_QUEUE_DEV: ${{ vars.PERSON_QUEUE_DEV }}
+
+      - name: Push da imagem para ECR
+        run: |
+          docker push ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:latest
+          docker push ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:${{ steps.version.outputs.version }}
+
+      - name: Criar nova task definition com nova imagem e envs
+        id: task-def
+        run: |
+          IMAGE_URI=${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:${{ steps.version.outputs.version }}
+
+          aws ecs describe-task-definition \
+            --task-definition trinity-task-dev \
+            --query "taskDefinition" > task-definition.json
+
+          jq ".containerDefinitions[0].image = \"${IMAGE_URI}\" |
+              .containerDefinitions[0].environment = [
+                {\"name\": \"AWS_CLOUD_ACCESS_KEY\", \"value\": \"${{ secrets.AWS_CLOUD_ACCESS_KEY }}\"},
+                {\"name\": \"AWS_CLOUD_SECRET_KEY\", \"value\": \"${{ secrets.AWS_CLOUD_SECRET_KEY }}\"},
+                {\"name\": \"AWS_CLOUD_REGION\", \"value\": \"${{ vars.AWS_CLOUD_REGION_DEV }}\"},
+                {\"name\": \"AWS_CLOUD_DYNAMO_PERSON\", \"value\": \"${{ vars.DYNAMO_PERSON_DEV }}\"},
+                {\"name\": \"AWS_CLOUD_SQS_PERSON\", \"value\": \"${{ vars.PERSON_QUEUE_DEV }}\"}
+              ]" task-definition.json > task-def-updated.json
+
+          jq "del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)" \
+            task-def-updated.json > final-task-def.json
+
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://final-task-def.json \
+            --query "taskDefinition.taskDefinitionArn" \
+            --output text)
+
+          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+      - name: Atualizar serviço ECS
+        run: |
+          aws ecs update-service \
+            --cluster studio-trek-cluster-dev \
+            --service trinity-service-dev \
+            --task-definition ${{ steps.task-def.outputs.task_def_arn }} \
+            --force-new-deployment

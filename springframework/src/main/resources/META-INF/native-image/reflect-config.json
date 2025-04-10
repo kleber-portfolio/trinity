@@ -1,0 +1,14 @@
+[
+  {
+    "name": "io.github.mrspock182.messaging.dto.PersonProducerDto",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "io.github.mrspock182.repository.dto.PersonOrmDynamoDB",
+    "allPublicConstructors": true,
+    "allPublicMethods": true,
+    "allPublicFields": true
+  }
+]
