@@ -3,10 +3,9 @@ package io.github.mrspock182.messaging;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mrspock182.entity.Person;
+import io.github.mrspock182.exception.InternalServerException;
 import io.github.mrspock182.messaging.adapter.PersonProducerAdapter;
 import io.github.mrspock182.messaging.dto.PersonProducerDto;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.sqs.SqsClient;
@@ -14,8 +13,6 @@ import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 @Component
 public class PersonProducerWithSqs implements PersonProducer {
-    private static final Logger LOGGER = LoggerFactory.getLogger(PersonProducerWithSqs.class);
-
     private final String topic;
     private final SqsClient sqsClient;
     private final ObjectMapper objectMapper;
@@ -41,8 +38,7 @@ public class PersonProducerWithSqs implements PersonProducer {
             sqsClient.sendMessage(request);
             return PersonProducerAdapter.cast(producer);
         } catch (RuntimeException | JsonProcessingException ex) {
-            LOGGER.error("Error to send message to SQS", ex);
-            throw new RuntimeException(ex);
+            throw new InternalServerException(ex);
         }
     }
 }

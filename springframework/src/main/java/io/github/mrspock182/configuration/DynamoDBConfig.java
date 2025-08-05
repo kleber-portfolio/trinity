@@ -5,6 +5,7 @@ import io.github.mrspock182.repository.dto.PersonOrmDynamoDB;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
@@ -19,9 +20,11 @@ import java.time.LocalDate;
 public class DynamoDBConfig {
     @Bean
     public DynamoDbClient dynamoDbClient(
+            AwsCredentialsProvider credentialsProvider,
             @Value("${spring.cloud.aws.region.static}") final String region) {
         return DynamoDbClient.builder()
                 .region(Region.of(region))
+                .credentialsProvider(credentialsProvider)
                 .build();
     }
 
